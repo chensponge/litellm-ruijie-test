@@ -1,0 +1,55 @@
+services:
+  litellm:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.company-base
+      target: runtime
+    image: litellm-company-base:v1.83.14-stable.patch.2
+    container_name: litellm_company_base
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env.company
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://llmproxy:dbpassword9090@db:5432/litellm}
+      STORE_MODEL_IN_DB: ${STORE_MODEL_IN_DB:-True}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-1234}
+    command:
+      - "--config=/app/config.company-baseline.yaml"
+      - "--port"
+      - "4000"
+    volumes:
+      - ./config.company-baseline.yaml:/app/config.company-baseline.yaml:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  db:
+    image: postgres:16
+    restart: always
+    container_name: litellm_company_db
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD: dbpassword9090
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_company_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d litellm -U llmproxy"]
+      interval: 1s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres_company_data:
+    name: litellm_company_postgres_data
