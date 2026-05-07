@@ -2,16 +2,15 @@ services:
   litellm:
     build:
       context: .
-      dockerfile: docker/Dockerfile.company-base
-      target: runtime
-    image: litellm-company-base:v1.83.14-stable.patch.2
-    container_name: litellm_company_base
+      dockerfile: docker/Dockerfile.database
+    image: ${LITELLM_IMAGE:-litellm-docker-database:local}
+    container_name: litellm_docker_database
     ports:
       - "4000:4000"
     env_file:
       - .env.company
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://llmproxy:dbpassword9090@db:5432/litellm}
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://llmproxy:dbpassword9090@db:5432/litellm}
       STORE_MODEL_IN_DB: ${STORE_MODEL_IN_DB:-True}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-1234}
     command:
@@ -35,7 +34,7 @@ services:
   db:
     image: postgres:16
     restart: always
-    container_name: litellm_company_db
+    container_name: litellm_database_db
     environment:
       POSTGRES_DB: litellm
       POSTGRES_USER: llmproxy
@@ -50,6 +49,21 @@ services:
       timeout: 5s
       retries: 20
 
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - prometheus_company_data:/prometheus
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    restart: always
+
 volumes:
   postgres_company_data:
     name: litellm_company_postgres_data
+  prometheus_company_data:
+    driver: local

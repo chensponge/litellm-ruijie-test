@@ -1,0 +1,88 @@
+name: Build Company Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Docker image tag
+        required: true
+        default: manual
+        type: string
+      push_to_ghcr:
+        description: Push the built image to GHCR
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-company-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      IMAGE_REPO: ghcr.io/${{ github.repository_owner }}/litellm-docker-database
+      IMAGE_TAG: ${{ inputs.image_tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo apt-get clean
+          df -h /
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12
+
+      - name: Log in to GHCR
+        if: ${{ inputs.push_to_ghcr }}
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image archive
+        if: ${{ !inputs.push_to_ghcr }}
+        uses: docker/build-push-action@0adf9959216b96bec444f325f1e493d4aa344497 # v6.14
+        with:
+          context: .
+          file: ./docker/Dockerfile.database
+          tags: litellm-docker-database:${{ env.IMAGE_TAG }}
+          outputs: type=docker,dest=/tmp/litellm-docker-database-${{ env.IMAGE_TAG }}.tar
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Upload image archive artifact
+        if: ${{ !inputs.push_to_ghcr }}
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.0
+        with:
+          name: litellm-docker-database-${{ env.IMAGE_TAG }}
+          path: /tmp/litellm-docker-database-${{ env.IMAGE_TAG }}.tar
+          retention-days: 7
+
+      - name: Build and push image
+        if: ${{ inputs.push_to_ghcr }}
+        uses: docker/build-push-action@0adf9959216b96bec444f325f1e493d4aa344497 # v6.14
+        with:
+          context: .
+          file: ./docker/Dockerfile.database
+          push: true
+          tags: ${{ env.IMAGE_REPO }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Show output summary
+        run: |
+          if [ "${{ inputs.push_to_ghcr }}" = "true" ]; then
+            echo "Pushed image: ${IMAGE_REPO}:${IMAGE_TAG}"
+          else
+            echo "Created image archive artifact: litellm-docker-database-${IMAGE_TAG}.tar"
+          fi

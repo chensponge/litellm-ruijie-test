@@ -1,4 +1,10 @@
 model_list:
+  - model_name: gpt-4o
+    litellm_params:
+      model: azure/gpt-4o-deployment
+      api_base: os.environ/AZURE_API_BASE
+      api_key: os.environ/AZURE_API_KEY
+      api_version: os.environ/AZURE_API_VERSION
   - model_name: qwen3-8b-preview
     litellm_params:
       model: openai/qwen3-8b
@@ -13,18 +19,42 @@ litellm_settings:
   telemetry: false
   context_window_fallbacks:
     - {"gpt-3.5-turbo": ["gpt-3.5-turbo-large"]}
+  default_team_settings:
+    - team_id: team-1
+      success_callback: ["langfuse"]
+      failure_callback: ["langfuse"]
+      langfuse_public_key: os.environ/LANGFUSE_PROJECT1_PUBLIC
+      langfuse_secret: os.environ/LANGFUSE_PROJECT1_SECRET
+    - team_id: team-2
+      success_callback: ["langfuse"]
+      failure_callback: ["langfuse"]
+      langfuse_public_key: os.environ/LANGFUSE_PROJECT2_PUBLIC
+      langfuse_secret: os.environ/LANGFUSE_PROJECT2_SECRET
+      langfuse_host: os.environ/LANGFUSE_HOST
+
+finetune_settings:
+  - custom_llm_provider: azure
+    api_base: os.environ/AZURE_API_BASE
+    api_key: os.environ/AZURE_API_KEY
+    api_version: os.environ/AZURE_FINETUNE_API_VERSION
+  - custom_llm_provider: openai
+    api_key: os.environ/OPENAI_API_KEY
+
+files_settings:
+  - custom_llm_provider: azure
+    api_base: os.environ/AZURE_API_BASE
+    api_key: os.environ/AZURE_API_KEY
+    api_version: os.environ/AZURE_FILES_API_VERSION
+  - custom_llm_provider: openai
+    api_key: os.environ/OPENAI_API_KEY
 
 router_settings:
-  routing_strategy: usage-based-routing-v2
-  redis_host: os.environ/REDIS_HOST
-  redis_password: os.environ/REDIS_PASSWORD
-  redis_port: os.environ/REDIS_PORT
   enable_pre_call_checks: true
   model_group_alias:
     my-special-fake-model-alias-name: fake-openai-endpoint-3
 
 general_settings:
-  master_key: sk-1234
+  master_key: os.environ/LITELLM_MASTER_KEY
   store_model_in_db: true
   proxy_budget_rescheduler_min_time: 60
   proxy_budget_rescheduler_max_time: 64
