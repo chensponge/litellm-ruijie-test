@@ -1,0 +1,120 @@
+name: Build Official Latest Database Image Hash
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Local image tag label used in exported filenames"
+        required: false
+        default: "database-official-latest"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-database-image:
+    name: Build official docker/Dockerfile.database
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout official latest source
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          repository: BerriAI/litellm
+          ref: litellm_internal_staging
+          fetch-depth: 1
+          persist-credentials: false
+          path: source
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo apt-get clean
+          df -h /
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12
+
+      - name: Compute source hashes
+        id: source_hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          DOCKERFILE_SHA=$(sha256sum source/docker/Dockerfile.database | awk '{print $1}')
+          TREE_SHA=$(git -C source rev-parse HEAD^{tree})
+          COMMIT_SHA=$(git -C source rev-parse HEAD)
+          {
+            echo "dockerfile_sha=${DOCKERFILE_SHA}"
+            echo "tree_sha=${TREE_SHA}"
+            echo "commit_sha=${COMMIT_SHA}"
+            echo "artifact_name=litellm-${IMAGE_TAG}"
+          } >> "$GITHUB_OUTPUT"
+
+          cat > build-input-hashes.txt <<EOF2
+          commit_sha=${COMMIT_SHA}
+          tree_sha=${TREE_SHA}
+          dockerfile_sha=${DOCKERFILE_SHA}
+          image_tag=${IMAGE_TAG}
+          dockerfile_path=docker/Dockerfile.database
+          source_repository=BerriAI/litellm
+          source_ref=litellm_internal_staging
+          EOF2
+
+      - name: Build OCI image archive
+        id: build_image
+        uses: docker/build-push-action@0adf9959216b96bec444f325f1e493d4aa344497 # v6.14
+        with:
+          context: ./source
+          file: ./source/docker/Dockerfile.database
+          tags: litellm:${{ inputs.image_tag }}
+          outputs: type=oci,dest=/tmp/litellm-${{ inputs.image_tag }}.oci.tar
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Compute build artifact hashes
+        id: artifact_hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          OCI_TAR="/tmp/litellm-${IMAGE_TAG}.oci.tar"
+          OCI_SHA=$(sha256sum "${OCI_TAR}" | awk '{print $1}')
+
+          {
+            echo "oci_tar_sha=${OCI_SHA}"
+            echo "oci_tar_path=${OCI_TAR}"
+          } >> "$GITHUB_OUTPUT"
+
+          cat > build-output-hashes.txt <<EOF2
+          oci_tar_sha=${OCI_SHA}
+          buildx_digest=${{ steps.build_image.outputs.digest }}
+          metadata_json=${{ steps.build_image.outputs.metadata }}
+          EOF2
+
+      - name: Print summary
+        shell: bash
+        run: |
+          cat <<EOF2 >> "$GITHUB_STEP_SUMMARY"
+          ## Official Latest Dockerfile.database Build Summary
+
+          - source_repository: `BerriAI/litellm`
+          - source_ref: `litellm_internal_staging`
+          - commit_sha: `${{ steps.source_hashes.outputs.commit_sha }}`
+          - tree_sha: `${{ steps.source_hashes.outputs.tree_sha }}`
+          - dockerfile_sha: `${{ steps.source_hashes.outputs.dockerfile_sha }}`
+          - buildx_digest: `${{ steps.build_image.outputs.digest }}`
+          - oci_tar_sha: `${{ steps.artifact_hashes.outputs.oci_tar_sha }}`
+          - image_tag: `${{ inputs.image_tag }}`
+          EOF2
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        with:
+          name: ${{ steps.source_hashes.outputs.artifact_name }}
+          path: |
+            build-input-hashes.txt
+            build-output-hashes.txt
+            /tmp/litellm-${{ inputs.image_tag }}.oci.tar
