@@ -8,6 +8,16 @@ on:
         required: false
         default: "database-official-latest"
         type: string
+      source_repository:
+        description: "Repository to checkout for the Docker build source"
+        required: false
+        default: "BerriAI/litellm"
+        type: string
+      source_ref:
+        description: "Branch, tag, or commit to checkout for the Docker build source"
+        required: false
+        default: "litellm_internal_staging"
+        type: string
 
 permissions:
   contents: read
@@ -22,8 +32,8 @@ jobs:
       - name: Checkout official latest source
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
-          repository: BerriAI/litellm
-          ref: litellm_internal_staging
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_ref }}
           fetch-depth: 1
           persist-credentials: false
           path: source
@@ -59,8 +69,8 @@ jobs:
           dockerfile_sha=${DOCKERFILE_SHA}
           image_tag=${IMAGE_TAG}
           dockerfile_path=docker/Dockerfile.database
-          source_repository=BerriAI/litellm
-          source_ref=litellm_internal_staging
+          source_repository=${{ inputs.source_repository }}
+          source_ref=${{ inputs.source_ref }}
           EOF2
 
       - name: Build OCI image archive
@@ -100,8 +110,8 @@ jobs:
           cat <<EOF2 >> "$GITHUB_STEP_SUMMARY"
           ## Official Latest Dockerfile.database Build Summary
 
-          - source_repository: `BerriAI/litellm`
-          - source_ref: `litellm_internal_staging`
+          - source_repository: `${{ inputs.source_repository }}`
+          - source_ref: `${{ inputs.source_ref }}`
           - commit_sha: `${{ steps.source_hashes.outputs.commit_sha }}`
           - tree_sha: `${{ steps.source_hashes.outputs.tree_sha }}`
           - dockerfile_sha: `${{ steps.source_hashes.outputs.dockerfile_sha }}`
