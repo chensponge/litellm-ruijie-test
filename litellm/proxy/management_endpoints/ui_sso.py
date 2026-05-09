@@ -29,7 +29,7 @@ from typing import (
     Union,
     cast,
 )
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 if TYPE_CHECKING:
     import httpx
@@ -593,6 +593,7 @@ async def google_login(
     microsoft_client_id = os.getenv("MICROSOFT_CLIENT_ID", None)
     google_client_id = os.getenv("GOOGLE_CLIENT_ID", None)
     generic_client_id = os.getenv("GENERIC_CLIENT_ID", None)
+    sourceid_client_id = os.getenv("SOURCEID_CLIENT_ID", None)
 
     ####### Check if UI is disabled #######
     _disable_ui_flag = os.getenv("DISABLE_ADMIN_UI")
@@ -606,6 +607,7 @@ async def google_login(
         microsoft_client_id is not None
         or google_client_id is not None
         or generic_client_id is not None
+        or sourceid_client_id is not None
     ):
         if premium_user is not True:
             # Check if under 'free SSO user' limit
@@ -613,7 +615,7 @@ async def google_login(
                 total_users = await prisma_client.db.litellm_usertable.count()
                 if total_users and total_users > 5:
                     raise ProxyException(
-                        message="You must be a LiteLLM Enterprise user to use SSO for more than 5 users. If you have a license please set `LITELLM_LICENSE` in your env. If you want to obtain a license meet with us here: https://enterprise.litellm.ai/demo You are seeing this error message because You set one of `MICROSOFT_CLIENT_ID`, `GOOGLE_CLIENT_ID`, or `GENERIC_CLIENT_ID` in your env. Please unset this",
+                        message="You must be a LiteLLM Enterprise user to use SSO for more than 5 users. If you have a license please set `LITELLM_LICENSE` in your env. If you want to obtain a license meet with us here: https://enterprise.litellm.ai/demo You are seeing this error message because You set one of `MICROSOFT_CLIENT_ID`, `GOOGLE_CLIENT_ID`, `GENERIC_CLIENT_ID`, or `SOURCEID_CLIENT_ID` in your env. Please unset this",
                         type=ProxyErrorTypes.auth_error,
                         param="premium_user",
                         code=status.HTTP_403_FORBIDDEN,
@@ -631,6 +633,17 @@ async def google_login(
     if missing_env_vars is not None:
         return missing_env_vars
     ui_username = os.getenv("UI_USERNAME")
+
+    if (
+        sourceid_client_id is not None
+        and source != LITELLM_CLI_SOURCE_IDENTIFIER
+        and key is None
+        and existing_key is None
+    ):
+        sourceid_login_url = "/sso/sourceid/login"
+        if return_to is not None and SSOAuthenticationHandler._validate_return_to(return_to):
+            sourceid_login_url += f"?return_to={quote(return_to, safe='')}"
+        return RedirectResponse(url=sourceid_login_url, status_code=302)
 
     # get url from request - always use regular callback, but set state for CLI
     redirect_url = SSOAuthenticationHandler.get_redirect_url_for_sso(
@@ -2057,6 +2070,7 @@ async def sso_readiness():
     microsoft_client_id = os.getenv("MICROSOFT_CLIENT_ID", None)
     google_client_id = os.getenv("GOOGLE_CLIENT_ID", None)
     generic_client_id = os.getenv("GENERIC_CLIENT_ID", None)
+    sourceid_client_id = os.getenv("SOURCEID_CLIENT_ID", None)
 
     # Determine which SSO provider is configured
     configured_provider = None
@@ -2066,6 +2080,8 @@ async def sso_readiness():
         configured_provider = "microsoft"
     elif generic_client_id is not None:
         configured_provider = "generic"
+    elif sourceid_client_id is not None:
+        configured_provider = "sourceid"
 
     # If no SSO is configured, return healthy (SSO is optional)
     if configured_provider is None:
@@ -2106,6 +2122,22 @@ async def sso_readiness():
             missing_vars.append("GENERIC_TOKEN_ENDPOINT")
         if generic_userinfo_endpoint is None:
             missing_vars.append("GENERIC_USERINFO_ENDPOINT")
+
+    elif configured_provider == "sourceid":
+        sourceid_client_secret = os.getenv("SOURCEID_CLIENT_SECRET", None)
+        sourceid_authorization_endpoint = os.getenv(
+            "SOURCEID_AUTHORIZATION_ENDPOINT", None
+        )
+        sourceid_token_endpoint = os.getenv("SOURCEID_TOKEN_ENDPOINT", None)
+        sourceid_userinfo_endpoint = os.getenv("SOURCEID_USERINFO_ENDPOINT", None)
+        if sourceid_client_secret is None:
+            missing_vars.append("SOURCEID_CLIENT_SECRET")
+        if sourceid_authorization_endpoint is None:
+            missing_vars.append("SOURCEID_AUTHORIZATION_ENDPOINT")
+        if sourceid_token_endpoint is None:
+            missing_vars.append("SOURCEID_TOKEN_ENDPOINT")
+        if sourceid_userinfo_endpoint is None:
+            missing_vars.append("SOURCEID_USERINFO_ENDPOINT")
 
     # If all required variables are present, return healthy
     if len(missing_vars) == 0:

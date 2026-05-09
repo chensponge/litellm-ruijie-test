@@ -917,11 +917,13 @@ def _has_user_setup_sso():
     microsoft_client_id = os.getenv("MICROSOFT_CLIENT_ID", None)
     google_client_id = os.getenv("GOOGLE_CLIENT_ID", None)
     generic_client_id = os.getenv("GENERIC_CLIENT_ID", None)
+    sourceid_client_id = os.getenv("SOURCEID_CLIENT_ID", None)
 
     sso_setup = (
         (microsoft_client_id is not None)
         or (google_client_id is not None)
         or (generic_client_id is not None)
+        or (sourceid_client_id is not None)
     )
 
     return sso_setup
