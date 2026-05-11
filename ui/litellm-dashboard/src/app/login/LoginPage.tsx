@@ -8,7 +8,7 @@ import { clearTokenCookies, getCookie } from "@/utils/cookieUtils";
 import { isJwtExpired } from "@/utils/jwtUtils";
 import { consumeReturnUrl, getReturnUrl, isValidReturnUrl } from "@/utils/returnUrlUtils";
 import { InfoCircleOutlined, CloudServerOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Form, Input, Popover, Select, Space, Typography } from "antd";
+import { Alert, Button, Card, Divider, Form, Input, Popover, Select, Space, Typography } from "antd";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useWorker } from "@/hooks/useWorker";
@@ -134,6 +134,11 @@ function LoginPageContent() {
         },
       },
     );
+  };
+
+  const handleSourceIDSSO = () => {
+    const ssoUrl = `${getProxyBaseUrl()}/sso/sourceid/login`;
+    window.location.href = ssoUrl;
   };
 
   const error = loginMutation.error instanceof Error ? loginMutation.error.message : null;
@@ -309,6 +314,12 @@ function LoginPageContent() {
               )}
             </Form.Item>
           </Form>
+
+          <Divider>Or</Divider>
+
+          <Button onClick={handleSourceIDSSO} block size="large" style={{ marginTop: 8 }}>
+            锐捷内部员工登录
+          </Button>
         </Space>
         {uiConfig?.sso_configured && (
           <Alert
