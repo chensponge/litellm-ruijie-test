@@ -123,10 +123,13 @@ services = Union[
         "email",
         "braintrust",
         "datadog",
+        "datadog_metrics",
         "datadog_llm_observability",
         "generic_api",
         "arize",
         "sqs",
+        "feishu",
+        "feishu_budget_alerts",
     ],
     str,
 ]
@@ -201,6 +204,8 @@ async def health_services_endpoint(  # noqa: PLR0915
             "generic_api",
             "arize",
             "sqs",
+            "feishu",
+            "feishu_budget_alerts",
         ]:
             raise HTTPException(
                 status_code=400,
@@ -393,6 +398,80 @@ async def health_services_endpoint(  # noqa: PLR0915
                     "status": "success",
                     "alert_types": alert_types,
                     "message": "Mock Slack Alert sent, verify Slack Alert Received on your channel",
+                }
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": '"{}" not in proxy config: general_settings. Unable to test this.'.format(
+                            service
+                        )
+                    },
+                )
+   
+        if service == "feishu" or service == "feishu_budget_alerts":
+            if "feishu" in general_settings.get("alerting", []):
+                # 检查用户是否配置了独立的告警webhook
+                if (
+                    proxy_logging_obj.feishu_alerting_instance.alert_to_webhook_url
+                    is not None
+                ):
+                    for (
+                        alert_type
+                    ) in proxy_logging_obj.feishu_alerting_instance.alert_to_webhook_url:
+                        # 只测试活跃告警类型
+                        if (
+                            proxy_logging_obj.feishu_alerting_instance.alert_types
+                            is not None
+                            and alert_type
+                            not in proxy_logging_obj.feishu_alerting_instance.alert_types
+                        ):
+                            continue
+
+                        test_message = "default test message"
+                        if alert_type == AlertType.llm_exceptions:
+                            test_message = "LLM Exception test alert"
+                        elif alert_type == AlertType.llm_too_slow:
+                            test_message = "LLM Too Slow test alert"
+                        elif alert_type == AlertType.llm_requests_hanging:
+                            test_message = "LLM Requests Hanging test alert"
+                        elif alert_type == AlertType.budget_alerts:
+                            test_message = "Budget Alert test alert"
+                        elif alert_type == AlertType.db_exceptions:
+                            test_message = "DB Exception test alert"
+                        elif alert_type == AlertType.outage_alerts:
+                            test_message = "Outage Alert Exception test alert"
+                        elif alert_type == AlertType.daily_reports:
+                            test_message = "Daily Reports test alert"
+                        else:
+                            test_message = "Budget Alert test alert"
+
+                        await proxy_logging_obj.alerting_handler(
+                            message=test_message, level="Low", alert_type=alert_type
+                        )
+                else:
+                    await proxy_logging_obj.alerting_handler(
+                        message="This is a test feishu alert message",
+                        level="Low",
+                        alert_type=AlertType.budget_alerts,
+                    )
+
+                if prisma_client is not None:
+                    asyncio.create_task(
+                        proxy_logging_obj.feishu_alerting_instance.send_monthly_spend_report()
+                    )
+                    asyncio.create_task(
+                        proxy_logging_obj.feishu_alerting_instance.send_weekly_spend_report()
+                    )
+
+                alert_types = (
+                    proxy_logging_obj.feishu_alerting_instance.alert_types or []
+                )
+                alert_types = list(alert_types)
+                return {
+                    "status": "success",
+                    "alert_types": alert_types,
+                    "message": "Mock Feishu Alert sent, verify Feishu Alert Received on your channel",
                 }
             else:
                 raise HTTPException(

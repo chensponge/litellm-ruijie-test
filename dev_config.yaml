@@ -1,3 +1,4 @@
+
 model_list:
   - model_name: fake-openai-endpoint
     litellm_params:
@@ -7,6 +8,31 @@ model_list:
 
 general_settings:
   master_key: sk-1234
+  alerting: ["feishu"]
+  feishu_webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f"
+  feishu_secret: ""
+  feishu_alert_types:
+    - budget_alerts
+    - outage_alerts
+  spend_report_frequency: 7d
+  alerting_threshold: 300
+  alerting_args:
+    log_to_console: true
+    budget_alert_ttl: 3600  # 1 hour
+    daily_report_frequency: 86400  # 24 hours
+    report_check_interval: 300  # 5 minutes
+  alert_to_webhook_url: {
+    "llm_exceptions": "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f",
+    "llm_too_slow": "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f",
+    "llm_requests_hanging": "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f",
+    "budget_alerts": "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f",
+    "db_exceptions": "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f",
+    "daily_reports": "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f",
+    "spend_reports": "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f",
+    "cooldown_deployment": "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f",
+    "new_model_added": "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f",
+    "outage_alerts": "https://open.feishu.cn/open-apis/bot/v2/hook/d120534f-40dc-4c63-b02e-4f9ef92bab8f",
+  }
 
 litellm_settings:
   drop_params: True

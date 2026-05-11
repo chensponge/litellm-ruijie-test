@@ -435,6 +435,30 @@ async def send_management_endpoint_alert(
             )
 
 
+    if (
+        proxy_logging_obj is not None
+        and proxy_logging_obj.feishu_alerting_instance is not None
+    ):
+        # Virtual Key Events
+        if function_name in management_function_to_event_name:
+            _event_name: AlertType = management_function_to_event_name[function_name]
+
+            key_event = VirtualKeyEvent(
+                created_by_user_id=user_api_key_dict.user_id or "Unknown",
+                created_by_user_role=user_api_key_dict.user_role or "Unknown",
+                created_by_key_alias=user_api_key_dict.key_alias,
+                request_kwargs=request_kwargs,
+            )
+
+            # replace all "_" with " " and capitalize
+            event_name = _event_name.replace("_", " ").title()
+            await proxy_logging_obj.feishu_alerting_instance.send_virtual_key_event_Feishu(
+                key_event=key_event,
+                event_name=event_name,
+                alert_type=_event_name,
+            )
+
+
 def management_endpoint_wrapper(func):
     """
     This wrapper does the following:

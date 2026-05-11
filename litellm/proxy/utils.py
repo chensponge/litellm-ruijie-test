@@ -90,6 +90,7 @@ from litellm.integrations.custom_guardrail import (
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.integrations.SlackAlerting.slack_alerting import SlackAlerting
 from litellm.integrations.SlackAlerting.utils import _add_langfuse_trace_id_to_alert
+from litellm.integrations.feishu.feishu_alerting import FeishuAlerting
 from litellm.litellm_core_utils.litellm_logging import Logging
 from litellm.litellm_core_utils.safe_json_dumps import safe_dumps
 from litellm.litellm_core_utils.safe_json_loads import safe_json_loads
@@ -365,6 +366,12 @@ class ProxyLogging:
             alerting=self.alerting,
             internal_usage_cache=self.internal_usage_cache.dual_cache,
         )
+        # lzc  add feishu alerting instance
+        self.feishu_alerting_instance: FeishuAlerting = FeishuAlerting(
+            alerting_threshold=self.alerting_threshold,
+            alerting=self.alerting,
+            internal_usage_cache=self.internal_usage_cache.dual_cache,
+        )
         self.email_logging_instance: Optional[Any] = None
         if BaseEmailLogger is not None:
             email_logger_class = _get_email_logger_class()
@@ -390,6 +397,9 @@ class ProxyLogging:
         """Initialize logging and alerting on proxy startup"""
         ## UPDATE SLACK ALERTING ##
         self.slack_alerting_instance.update_values(llm_router=llm_router)
+
+        ## lzc add feishu alerting update
+        self.feishu_alerting_instance.update_values(llm_router=llm_router)
 
         ## UPDATE INTERNAL USAGE CACHE ##
         self.update_values(
@@ -423,6 +433,34 @@ class ProxyLogging:
             )  # RUN HANGING REQUEST CHECK (if user wants to alert on hanging requests)
             self.hanging_requests_check_started = True
 
+      
+        if (
+            self.feishu_alerting_instance is not None
+            and self.alerting is not None
+            and "feishu" in self.alerting
+            and "daily_reports" in self.feishu_alerting_instance.alert_types
+            and not self.daily_report_started
+        ):
+            asyncio.create_task(
+                self.feishu_alerting_instance._run_scheduled_daily_report(
+                    llm_router=llm_router
+                )
+            )  # RUN DAILY REPORT (if scheduled)
+            self.daily_report_started = True
+
+        # lzc add feishu 运行挂起请求检查任务
+        if (
+            self.feishu_alerting_instance is not None
+            and self.alerting is not None
+            and "feishu" in self.alerting
+            and AlertType.llm_requests_hanging in self.feishu_alerting_instance.alert_types
+            and not self.hanging_requests_check_started
+        ):
+            asyncio.create_task(
+                self.feishu_alerting_instance.hanging_request_check.check_for_hanging_requests()
+            )  # RUN HANGING REQUEST CHECK (if user wants to alert on hanging requests)
+            self.hanging_requests_check_started = True
+
     def update_values(
         self,
         alerting: Optional[List] = None,
@@ -434,20 +472,47 @@ class ProxyLogging:
         alert_type_config: Optional[dict] = None,
     ):
         updated_slack_alerting: bool = False
+        updated_feishu_alerting: bool = False
         if alerting is not None:
             self.alerting = alerting
             updated_slack_alerting = True
+            updated_feishu_alerting = True
         if alerting_threshold is not None:
             self.alerting_threshold = alerting_threshold
             updated_slack_alerting = True
+            updated_feishu_alerting = True
         if alert_types is not None:
             self.alert_types = alert_types
             updated_slack_alerting = True
+            updated_feishu_alerting = True
         if alert_to_webhook_url is not None:
             self.alert_to_webhook_url = alert_to_webhook_url
             updated_slack_alerting = True
+            updated_feishu_alerting = True
         if alert_type_config is not None:
             updated_slack_alerting = True
+
+        if updated_feishu_alerting is True:
+            self.feishu_alerting_instance.update_values(
+                alerting=self.alerting,
+                alerting_threshold=self.alerting_threshold,
+                alert_types=self.alert_types,
+                alerting_args=alerting_args,
+                alert_to_webhook_url=self.alert_to_webhook_url,
+            )
+
+            if self.alerting is not None and "feishu" in self.alerting:
+                # NOTE: ENSURE we only add callbacks when alerting is on
+                # We should NOT add callbacks when alerting is off
+                if (
+                    "daily_reports" in self.alert_types
+                    or "outage_alerts" in self.alert_types
+                    or "region_outage_alerts" in self.alert_types
+                ):
+                    litellm.logging_callback_manager.add_litellm_callback(self.feishu_alerting_instance)  # type: ignore
+                litellm.logging_callback_manager.add_litellm_success_callback(
+                    self.feishu_alerting_instance.response_taking_too_long_callback
+                )
 
         if updated_slack_alerting is True:
             self.slack_alerting_instance.update_values(
@@ -1681,6 +1746,52 @@ class ProxyLogging:
 
         extra_kwargs = {}
         alerting_metadata = {}
+        # 为 LLM 异常准备模板参数，包含模型、API Base、消息片段、别名等
+        if alert_type == AlertType.llm_exceptions:
+            try:
+                litellm_params = (request_data or {}).get("litellm_params", {})
+                model = (request_data or {}).get("model") or ""
+                api_base = litellm.get_api_base(model=model, optional_params=litellm_params)
+                messages = (request_data or {}).get("messages") or (request_data or {}).get("input")
+                messages_excerpt = (str(messages)[:100]) if messages is not None else None
+                # 提取 LiteLLM 元数据中的别名与分组
+                from litellm.litellm_core_utils.core_helpers import get_litellm_metadata_from_kwargs
+                md = get_litellm_metadata_from_kwargs(kwargs=request_data or {})
+                key_alias = md.get("user_api_key_alias")
+                team_alias = md.get("user_api_key_team_alias")
+                model_group = md.get("model_group")
+                deployment = md.get("deployment")
+                extra_kwargs["template_params"] = {
+                    "exception_text": message,
+                    "model": model,
+                    "api_base": api_base,
+                    "messages_excerpt": messages_excerpt,
+                    "key_alias": key_alias,
+                    "team_alias": team_alias,
+                    "model_group": model_group,
+                    "deployment": deployment,
+                }
+            except Exception:
+                pass
+        # 当数据库异常时，构造模板参数用于 Feishu 卡片
+        if alert_type == AlertType.db_exceptions:
+            # 使用原始 message 文本提取摘要与追踪
+            raw = message or ""
+            tb_idx = raw.find("Traceback")
+            if tb_idx != -1:
+                summary = raw[:tb_idx].strip()
+                traceback_text = raw[tb_idx:].strip()
+            else:
+                summary = raw.strip()
+                traceback_text = None
+            # 去除前缀，突出摘要主体
+            prefix = "DB read/write call failed: "
+            if summary.lower().startswith(prefix.lower()):
+                summary = summary[len(prefix):].strip()
+            extra_kwargs["template_params"] = {
+                "summary": summary,
+                "traceback": traceback_text,
+            }
         if request_data is not None:
             _url = await _add_langfuse_trace_id_to_alert(request_data=request_data)
 
@@ -1697,6 +1808,16 @@ class ProxyLogging:
             if client == "slack":
                 await self.slack_alerting_instance.send_alert(
                     message=message,
+                    level=level,
+                    alert_type=alert_type,
+                    user_info=None,
+                    alerting_metadata=alerting_metadata,
+                    **extra_kwargs,
+                )
+            # lzc : 添加飞书告警
+            elif client == "feishu":
+                await self.feishu_alerting_instance.send_alert(
+                    message=formatted_message,
                     level=level,
                     alert_type=alert_type,
                     user_info=None,
